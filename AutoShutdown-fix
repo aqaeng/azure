@@ -1,0 +1,94 @@
+
+
+workflow Assert-AutoShutdownSchedule
+{
+    Param
+    (
+		[parameter(Mandatory=$false)]
+        [String] $AzureCredentialName = "Automation-Account",
+
+        [parameter(Mandatory=$false)]
+        [String] $AzureSubscriptionName = "Default Azure Subscription"
+    )
+   	
+    # Note: Use of "Write-Output" is not recommended generally for recording informational or error messages
+    # but is used here for ease of seeing everything in the "Output" pane in the Azure portal
+    $currentTime = (Get-Date).AddHours(-1)
+    Write-Output "Runbook started"
+    Write-Output "Current UTC/GMT time [$($currentTime.ToString("dddd, yyyy MMM dd HH:mm:ss"))] will be checked against schedules"
+	
+    # Retrieve credential name from variable asset if not specified
+    if($AzureCredentialName -eq "Use *Default Automation Credential* asset")
+    {
+        $azureCredential = Get-AutomationPSCredential -Name "Default Automation Credential"
+        if($azureCredential -eq $null)
+        {
+			Write-Output "ERROR: No automation credential name was specified, and no credential asset with name 'Default Automation Credential' was found. Either specify a stored credential name or define the default using a credential asset"
+            Write-Output "Exiting runbook due to error"
+			return
+        }
+    }
+    else
+    {
+        $azureCredential = Get-AutomationPSCredential -Name $AzureCredentialName
+        if($azureCredential -eq $null)
+        {
+            Write-Output "ERROR: Failed to get credential with name [$AzureCredentialName]"
+			Write-Output "Exiting runbook due to error"
+            return
+        }
+    }
+    
+    # Connect to Azure using credential asset
+    $addAccountResult = Add-AzureAccount -Credential $azureCredential
+
+    # Retrieve subscription name from variable asset if not specified
+    if($AzureSubscriptionName -eq "Use *Default Azure Subscription* Variable Value")
+    {
+        $AzureSubscriptionName = Get-AutomationVariable -Name "Default Azure Subscription"
+        if($AzureSubscriptionName.length -eq 0)
+        {
+            Write-Output "ERROR: No subscription name was specified, and no variable asset with name 'Default Azure Subscription' was found. Either specify an Azure subscription name or define the default using a variable setting"
+            Write-Output "Exiting runbook due to error"
+			return
+        }
+    }
+	else
+    {
+        $AzureSubscriptionName = Get-AutomationVariable -Name $AzureSubscriptionName
+        if($AzureSubscriptionName -eq $null)
+        {
+            Write-Output "ERROR: Invalid subscription name [$AzureSubscriptionName]"
+			Write-Output "Exiting runbook due to error"
+            return
+        }
+    }
+    
+    # Validate subscription
+    $targetSubscriptionId = InlineScript 
+    {
+        $subscriptions = Get-AzureSubscription
+        $subscription = $subscriptions | where {$_.SubscriptionName -eq $Using:AzureSubscriptionName -or $_.SubscriptionId -eq $Using:AzureSubscriptionName}
+        
+        if($subscription.Count -eq 1)
+        {
+            # Return the matching subscription Id
+            $subscription.SubscriptionId
+        }
+        else
+        {
+            if($subscription.Count -eq 0)
+            {
+                Write-Output "ERROR: No accessible subscription found with name or ID [$Using:AzureSubscriptionName]"
+            }
+            else
+            {
+                Write-Output "ERROR: More than one accessible subscription found with name or ID [$Using:AzureSubscriptionName]. Please ensure your subscription names are unique, or specify ID instead"
+            }
+            
+			Write-Output "Exiting runbook due to error"
+            return
+        }
+    }
+    
+	
